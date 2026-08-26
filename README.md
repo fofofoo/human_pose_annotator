@@ -1,352 +1,166 @@
-# Video Pose Annotation Tool
+# 人体姿态标注工具（Human Pose Annotation Tool）
 
-A lightweight, privacy-focused tool specifically designed for annotating single subject's 2D pose in videos. This tool is particularly suited for behavioral studies, offering direct video frame annotation capabilities and smart features to avoid redundant labeling across multiple videos. Current setting is for COCO17 skeleton, but other human/animal skeleton can be applied easily.
+一个基于 PyQt5 的 Windows 桌面人体 2D 姿态标注工具。以**图片文件夹 + COCO JSON** 为核心工作流，支持**同一张图多人**的姿态标注、编辑与保存。当前配置为 COCO17（17 个人体关键点 + 19 条骨骼），可通过修改配置适配其他人体/动物骨架。
 
 ![Tool Overview](images/gui.png)
-*Main interface showing keypoint annotation, skeleton visualization, and control panel*
+*主界面：左侧关键点视图，右侧标注控制面板*
 
-## Why Choose This Tool?
+## 功能特性
 
-- **Video-Centric**: Directly works with video files, automatically extracting frames for annotation
-- **Image Sequence Support**: Loads folders of zero-based numbered images as video-like frame sequences
-- **Smart Organization**: 
-  - Supports multiple videos in the same annotation project
-  - Helps avoid duplicate labeling of same frame from the same videos
-  - Maintains clear source tracking for each annotated frame
-- **Privacy First**: Runs completely locally - perfect for sensitive behavioral study data
-- **Research-Oriented**: 
-  - Designed for behavioral studies
-  - Efficient workflow for frame-by-frame analysis
-  - Clear visualization of pose progression
-- **Customizable**: Define your own skeleton structure and keypoint configurations
-- **Lightweight**: Minimal dependencies, quick setup, runs smoothly on standard hardware
+- **多人姿态标注**：同一张图可标注多个人，Person 下拉切换，互不干扰
+- **COCO 格式**：`images / annotations / categories` 标准结构，关键点 `(x, y, v)` 三元组
+- **纯本地运行**：数据不离开本机，适合行为学研究等敏感数据
+- **灵活的关键点编辑**：
+  - 吸附选中：点击关键点附近（15px）自动选中，按住左键拖拽移动
+  - 放置模式：W 键开启后左键放置未标注点，放完自动关闭
+  - 删除与恢复：T / Delete 删除选中点，Reset Selected 可恢复
+  - 可见性标记：每个点可标为可见（v=2）或遮挡/估计（v=1）
+- **实时可视化**：当前人彩色关键点 + 实线骨骼 + 橙色 bbox；非当前人灰色虚线区分
+- **智能保存**：S 键静默保存；A/D 切帧仅在有修改时弹窗询问；保存时自动留 `.bak` 备份
+- **可定制配置**：关键点、骨骼连接、颜色均在 `pose_config.py` 中集中定义
 
-The tool follows the COCO format standard while providing specialized features for video-based pose annotation.
-
-## Features
-
-- Interactive visualization of pose keypoint annotations
-- Support for COCO format JSON annotations
-- Configurable keypoint and skeleton definitions
-- Real-time visualization of:
-  - Keypoints with visibility states
-  - Skeleton connections
-  - Bounding boxes
-  - Frame-specific information
-- Zoom and pan capabilities
-- Dark mode interface for better visibility
-- Folder-based image sequence loading with filenames like `000000000000.jpg`
-
-## Requirements
+## 环境要求与安装
 
 ```
-python >= 3.6
+Python >= 3.6
 PyQt5
 opencv-python-headless
 numpy
 ```
 
-## Project Structure
-
-```
-pose_annotation_tool/
-- pose_config.py        # Configuration management
-- annotator.py          # Main GUI application
-- README.md             # This documentation
-- frames/               # Directory for frame images
-```
-
-## Installation
-
-1. Clone the repository
-```bash
-git clone https://github.com/Sooophy/human_pose_annotator.git
-```
-2. Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-If you previously installed `opencv-python`, replace it with the headless wheel to
-avoid Qt plugin conflicts with PyQt:
-```bash
-pip uninstall opencv-python
-pip install opencv-python-headless
-```
+> 注意：请使用 `opencv-python-headless` 而非 `opencv-python`，避免与 PyQt 的 Qt 插件冲突导致无法启动。若已安装 `opencv-python`，先卸载再安装 headless 版。
 
-## Usage
+## 快速开始
 
-### Getting Started
+### 1. 启动
 
-1. Launch the application:
 ```bash
 python annotator.py
 ```
 
-2. Video or Image Folder Loading:
-   - Click "Load Video" to select your video file(s)
-   - Click "Load Image Folder" and select any image in a folder of numbered images
-   - The tool will automatically:
-     - Extract frames from the video
-     - Create a unique identifier for each video
-     - Organize frames in the project directory
-   - For image folders, the folder name is used as the source/video name
-   - Image filenames should use zero-based numeric stems such as `000000000000.jpg`, `000000000001.jpg`, and `000000000002.jpg`
-   - Multiple videos can be loaded into the same project
-   - Previously extracted frames are detected to avoid duplication
+### 2. 加载数据
 
-3. Project Management:
-   - Each video maintains its own metadata
-   - Annotations are saved in a single COCO format JSON file
-   - Frame sources are tracked by video identifier
-   - Smart detection of similar poses across videos helps avoid redundant labeling
+1. 点击 **Load Image Folder** 选择图片文件夹（支持 `.jpg / .jpeg / .png`，文件名数字或命名均可，按自然顺序排序）。
+2. 点击 **Load Annotations** 选择已有 COCO JSON，或直接创建新的标注文件。
+   - 若还未选过图片文件夹，工具会在此步自动弹出选择框，并按每个 image 的 `file_name` 关联到图片。
+3. 点击 **Set Output Directory** 指定标注保存目录（保存的 JSON 为 `annotations.json`）。
+4. 加载完成后，**Frame Selection** 区可浏览各帧：下拉框列出已标注帧，滑条 / 数字框在相邻帧间跳转。
 
-### Basic Interface Layout
+### 3. 标注流程
 
-1. Top Control Buttons:
-   - "Load Video": Select video file to annotate
-   - "Load Image Folder": Select a folder of numbered image frames
-   - "Load Annotations": Import existing annotations
-   - "Set Output Directory": Choose save location
+1. 在右侧 **Keypoints** 列表选中一个关键点（显示为中文，如"鼻子"；内部与 COCO JSON 仍用英文键名）。
+2. **放置新点**：若该点尚未标注，先按 **W** 开启放置模式，再用左键在图上点击放置；放置一个点后放置模式自动关闭。
+   - 放置前可在 **Point v** 下拉选择该点的可见性：`Visible (v=2)` 或 `Occluded (v=1)`。
+3. **移动已有点**：左键点击关键点附近即可吸附选中，按住左键拖拽调整位置。
+4. **删除与恢复**：选中点后按 **T / Delete** 删除；按 **Reset Selected Keypoint** 恢复（优先恢复选中点，无选中时恢复最近删除的点）。
+5. **整体重置**：**Reset All Keypoints** 将当前人的所有点恢复到加载时的原始状态。
+6. 完成后按 **S** 保存。
 
-2. Frame Navigation:
-   - Slider bar for video frame navigation
-   - Frame number display and input
-   - Frame Selection area above slider
+## 多人标注
 
-3. Keypoint List:
-   - Complete list of keypoints to annotate
-   - Arranged in anatomical order from head to feet
-   - Left/right pairs grouped together
+- **切换当前人**：Person 下拉框，或按 **Tab** 循环切换（切换前自动保存当前人）。
+- **新增**：**Add Person** 按钮追加一个空白的人并切换过去。
+- **删除**：**Delete Person** 按钮，弹窗确认后删除当前人的关键点与框。
+- 当前人的关键点/骨骼为彩色实线，其他人显示为灰色，便于区分。
 
-4. Bottom Control Buttons:
-   - "Reset Selected Keypoint"
-   - "Save Current Frame"
-   - "Reset All Keypoints"
-   - "Exit Program"
+> 删除/新增 Person 与编辑关键点一样属于"修改"：只有**保存**后才会写入文件；若随后切换帧时选择"不保存"，这些修改（含删除的人）会被丢弃。
 
-### Keypoint Annotation
+## 快捷键
 
-1. Basic Controls:
-   - Left-click: Place or move visible keypoints
-   - Right-click: Place or move estimated/occluded keypoints
-   - "Reset Selected Keypoint": Clear current keypoint
-   - "Reset All Keypoints": Clear all keypoints in current frame
-   - "Save Current Frame": Save your annotations
+| 按键 | 功能 |
+| ---- | ---- |
+| `A` / `D` | 上一帧 / 下一帧（当前帧有未保存修改时弹窗询问是否保存） |
+| `W` | 开关关键点放置模式 |
+| `T` / `Delete` | 删除当前选中的关键点 |
+| `S` | 静默保存当前帧 |
+| `Tab` | 切换到下一个 person（自动保存） |
 
-2. Visibility States:
-   - Left-click points: Fully visible keypoints
-   - Right-click points: Estimated/occluded keypoints
-   - Unlabeled: Points not yet marked
+## 保存机制
 
-3. Keypoint List Interface:
-   - Visual status indication:
-     * White background: Unlabeled points
-     * Green highlight: Labeled points (visible, left-click)
-     * Yellow highlight: Estimated points (occluded, right-click)
-   - Complete list of keypoints:
-     * nose
-     * left_eye, right_eye
-     * left_ear, right_ear
-     * left_shoulder, right_shoulder
-     * left_elbow, right_elbow
-     * left_wrist, right_wrist
-     * left_hip, right_hip
-     * left_knee, right_knee
-     * left_ankle, right_ankle
-   - List updates in real-time as you label points
-   - Provides immediate visual feedback of labeling progress
-   - Helps track which points still need to be labeled
+- **保存目标**：写入输出目录下的 `annotations.json`。
+- **`.bak` 备份**：保存时若 `annotations.json` 已存在，先将其备份为 `annotations.json.bak`（覆盖旧备份），再直接在原文件上写入新内容，误改时可用备份恢复。
+- **保存入口**：
+  - `Save Current Frame` 按钮或 `S` 键：静默保存（无弹窗，底部状态区显示保存记录）。
+  - `A/D` 切帧：仅当当前帧有未保存修改时才弹窗询问，选"是"则保存并切换，选"否"则丢弃修改直接切换。
+  - `Tab` 切换 person：自动静默保存。
+- 保存以当前场景为准，将本帧 `annotations` 与画面中的人一一对齐：改动写回、新增追加、删除移除（含删除全部人时清空该帧标注）。
 
-4. Status Display:
-   ```
-   Source: Current source only (not annotated)/annotation only/both source and annotations
-   Video: [filename].mp4
-   Frame: [number]
-   Image: [status]
-   BBox: x=0.0, y=0.0, w=0.0, h=0.0
-   Visible Keypoints (Left-click): [count]
-   Estimated Keypoints (Right-click): [count]
-   Unlabeled Keypoints: [remaining count]
-   ```
-   - Fully visible (v=2): Solid color
-   - Occluded (v=1): Semi-transparent
-   - To mark point as occluded:
-     1. Right-click on the point
-     2. Select "Mark as Occluded" from context menu
+## 界面说明
 
-### Saving Your Work
+- **左侧**：图片视图。支持缩放、平移；关键点、骨骼、bbox 实时绘制。
+- **右侧面板**：
+  - 文件控制：`Load Image Folder` / `Load Annotations` / `Set Output Directory`
+  - Frame Selection：帧下拉、滑条、帧号数字框
+  - Person：当前人下拉 + `Add Person` / `Delete Person`
+  - Point v：新放置点的可见性
+  - Keypoints：17 个关键点列表（当前人的标注状态用背景色实时反映）
+  - Add Mode：显示放置模式开关状态（`W`）
+  - 控制按钮：`Reset Selected Keypoint` / `Save Current Frame` / `Reset All Keypoints` / `Exit Program`
+  - 元数据显示：Source / Video / Frame / Image ID / Person / BBox / 可见与遮挡点统计
+  - Status Messages：底部状态消息（含时间戳的保存记录等）
 
-**Important: Frames are NOT auto-saved!**
+## 数据格式
 
-1. Saving Annotations:
-   - You must explicitly click "Save Current Frame" to save your work
-   - Changes are not automatically saved when:
-     * Switching between frames
-     * Moving to a different video
-     * Closing the program
-   - Make sure to save your work before:
-     * Moving to another frame
-     * Exiting the program
-     * Taking long breaks
+COCO 人体关键点标准，另在 `images` 中扩展了 `video_file`（图片文件夹名）与 `frame_number` 用于来源跟踪：
 
-2. Best Practices:
-   - Save after completing each keypoint set
-   - Verify your save in the metadata display
-
-3. Output Management:
-   - Use "Set Output Directory" to specify where annotations are saved
-   - Annotations are saved in COCO format JSON
-   - Each save updates the annotation file with current frame data
-   - For image folders, the folder basename is saved as the video/source name
-   - Numeric filename stems are saved as zero-based frame numbers
-
-### Understanding the Interface
-
-1. Main Display:
-   - Keypoints: Colored dots with labels
-   - Skeleton: Blue lines connecting keypoints
-   - Bounding box: Orange dashed line
-
-2. Information Panel:
-   - Displays frame metadata (video source, frame number)
-   - Shows current bounding box coordinates
-   - Tracks keypoint statistics (visible, estimated, unlabeled)
-   - Updates in real-time as you annotate
-
-3. Status Messages:
-   - Bottom status bar shows saving history with time, frame, video source, and imageID (if updating)
-     Note: new frame saving will show the ID as None, and updated frame saving will show the imageID in the annotation
-
-
-## Configuration
-
-The `pose_config.py` module allows customization of:
-- Keypoint definitions
-- Skeleton connections
-- Color schemes
-- Default paths and settings
-
-Example configuration (COCO17):
-
-```python
-KEYPOINT_NAMES = [
-    "nose", "left_eye", "right_eye", "left_ear", "right_ear",
-    "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
-    "left_wrist", "right_wrist", "left_hip", "right_hip",
-    "left_knee", "right_knee", "left_ankle", "right_ankle"
-]
-
-SKELETON_CONNECTIONS = [
-    [1, 2], [1, 3], [2, 4], [3, 5],  # Head
-    [6, 8], [8, 10], [7, 9], [9, 11],  # Arms
-    [12, 14], [14, 16], [13, 15], [15, 17]  # Legs
-]
+```json
+{
+  "images": [
+    {"id": 1, "file_name": "0001.jpg", "video_file": "frames", "frame_number": 1, "width": 1920, "height": 1080}
+  ],
+  "annotations": [
+    {
+      "id": 1, "image_id": 1, "category_id": 1,
+      "keypoints": [x, y, v, x, y, v, ...],
+      "num_keypoints": 17,
+      "bbox": [x, y, w, h],
+      "area": 0
+    }
+  ],
+  "categories": [
+    {"id": 1, "name": "person", "supercategory": "person", "keypoints": [...], "skeleton": [...]}
+  ]
+}
 ```
 
-## Visualization Features
+- `keypoints` 为扁平三元组 `(x, y, v)`，`v = 0` 未标注 / `1` 遮挡·估计 / `2` 可见。
+- 同一 `image_id` 对应多条 `annotations` 即多人。
 
-- **Keypoints**: 
-  - Visible keypoints shown in full color
-  - Labeled but invisible keypoints shown with transparency
-  - Each keypoint labeled with its name
-  
-- **Skeleton**: 
-  - Connections between keypoints shown in light blue
-  - Only drawn when both connected keypoints are visible
-  
-- **Bounding Box**:
-  - Dashed orange line
-  - Coordinates displayed in info panel
+## 配置（pose_config.py）
 
-- **Information Panel**:
-  - Frame number
-  - Image ID
-  - Bounding box coordinates
-  - Keypoint visibility statistics
+`pose_config.py` 中的 `PoseConfig` 集中定义了：
 
-## Implementation Details
+- `keypoint_names`：17 个关键点（英文键名，COCO 兼容）
+- `keypoint_display_names`：界面显示的中文名
+- `skeleton`：骨骼连接（COCO 索引）
+- `keypoint_colors`：各关键点颜色
+- `skeleton_color`：骨骼线颜色
 
-### Bounding Box Configuration
-- Default padding: 30 pixels around the keypoint extremes
-- Padding is applied in the `calculate_bbox` method:
-```python
-def calculate_bbox(self):
-    """Calculate bounding box from keypoints"""
-    if not self.keypoints:
-        return None
-        
-    valid_x = [x for x, y, v in self.keypoints.values()]
-    valid_y = [y for x, y, v in self.keypoints.values()]
-    
-    if valid_x and valid_y:
-        x_min, x_max = min(valid_x), max(valid_x)
-        y_min, y_max = min(valid_y), max(valid_y)
-        
-        # Add padding to make box slightly larger than the keypoints
-        padding = 30  # Modify this value to adjust bounding box size
-        x_min -= padding
-        y_min -= padding
-        x_max += padding
-        y_max += padding
+需要适配其他骨架（如动物）时，仅需修改此文件。
+
+## 目录结构
+
 ```
-- The padding ensures the bounding box extends beyond the keypoints for better visibility
-- You can modify the `padding` variable in the method to adjust the box size
+human_pose_annotator/
+├── annotator.py              # 主程序（GUI + 标注逻辑）
+├── pose_config.py            # 关键点 / 骨骼 / 颜色配置
+├── requirements.txt          # 依赖
+├── README.md                 # 本文档
+├── demo/coco-pose-2017.json  # 示例 COCO 标注文件（多人）
+└── images/                   # README 截图
+```
 
-### Annotation Capabilities
-- **Dual Mode Operation**:
-  - Visualization mode: Display existing annotations
-  - Labeling mode: Create or modify keypoint annotations
-- Each keypoint can be:
-  - Labeled as visible (v=2)
-  - Labeled but marked as occluded (v=1)
-  - Unlabeled (v=0)
+## 常见问题
 
-### Metadata Handling
-The tool displays and processes various metadata:
-- Frame Information:
-  ```json
-  {
-    "id": "unique_image_id",
-    "frame_number": "sequential_number",
-    "file_name": "image_file_name",
-    "width": "image_width",
-    "height": "image_height"
-  }
-  ```
-- Annotation Information:
-  ```json
-  {
-    "image_id": "corresponding_image_id",
-    "category_id": "person_category",
-    "bbox": [x, y, width, height],
-    "keypoints": [x1, y1, v1, x2, y2, v2, ...]
-  }
-  ```
+- **启动报 Qt 平台插件错误**：多为 OpenCV 自带的 Qt 插件与 PyQt 冲突，确认已使用 `opencv-python-headless`。
+- **`Load Annotations` 后图片不显示**：需先选择与标注文件 `file_name` 匹配的图片文件夹；加载标注时会自动弹出选择框。
+- **误删了关键点 / 删错了人**：未保存前切走再切回会恢复原始状态；已保存后可从 `annotations.json.bak` 恢复上一版本。
 
-### Source Identification Logic
-The tool employs a hierarchical system to identify and match frames and keypoints:
-
-1. **Frame Source Detection**:
-   - Checks for frames in default directory (./frames)
-   - Looks for frames relative to annotation file location
-   - Allows manual directory selection if not found
-
-2. **Keypoint-Frame Matching**:
-   - Matches frames to annotations using image_id
-   - Validates frame numbers against video sequence
-   - Handles both video-extracted frames and individual images
-
-3. **Data Validation**:
-   - Ensures frame numbers are sequential
-   - Validates keypoint coordinates against image dimensions
-   - Verifies consistency between frame and annotation metadata
-
-## Contributing
-
-Feel free to submit issues and enhancement requests.
-
-## License
+## 许可证
 
 The MIT License (MIT)
 
@@ -370,6 +184,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
-## Acknowledgments
+## 致谢
 
-This tool uses the COCO keypoint format standard for human pose estimation.
+本工具使用 COCO 人体关键点格式标准（https://cocodataset.org/）进行人体姿态标注。
