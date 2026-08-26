@@ -3,6 +3,7 @@
 一个基于 PyQt5 的 Windows 桌面人体 2D 姿态标注工具。以**图片文件夹 + COCO JSON** 为核心工作流，支持**同一张图多人**的姿态标注、编辑与保存。当前配置为 COCO17（17 个人体关键点 + 19 条骨骼），可通过修改配置适配其他人体/动物骨架。
 
 项目基于 https://github.com/Sooophy/human_pose_annotator 项目开发，增加了通用的图片文件夹和coco数据集读取能力，可以完成基础的人类姿态标注工作。
+
 ![Tool Overview](images/gui.png)
 *主界面：左侧关键点视图，右侧标注控制面板*
 
