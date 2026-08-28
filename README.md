@@ -13,7 +13,7 @@
 - **COCO 格式**：`images / annotations / categories` 标准结构，关键点 `(x, y, v)` 三元组
 - **纯本地运行**：数据不离开本机，适合行为学研究等敏感数据
 - **灵活的关键点编辑**：
-  - 吸附选中：点击关键点附近（15px）自动选中，按住左键拖拽移动
+  - 吸附选中：点击关键点附近（10px）自动选中，按住左键拖拽移动
   - 放置模式：W 键开启后左键放置未标注点，放完自动关闭
   - 删除与恢复：T / Delete 删除选中点，Reset Selected 可恢复
   - 可见性标记：每个点可标为可见（v=2）或遮挡/估计（v=1）
@@ -49,7 +49,7 @@ python annotator.py
 1. 点击 **Load Image Folder** 选择图片文件夹（支持 `.jpg / .jpeg / .png`，文件名数字或命名均可，按自然顺序排序）。
 2. 点击 **Load Annotations** 选择已有 COCO JSON，或直接创建新的标注文件。
    - 若还未选过图片文件夹，工具会在此步自动弹出选择框，并按每个 image 的 `file_name` 关联到图片。
-3. 点击 **Set Output Directory** 指定标注保存目录（保存的 JSON 为 `annotations.json`）。
+3. 点击 **Set Output Directory** 指定标注保存目录（保存的 JSON 为 `out_annotations.json`）。
 4. 加载完成后，**Frame Selection** 区可浏览各帧：下拉框列出已标注帧，滑条 / 数字框在相邻帧间跳转。
 
 ### 3. 标注流程
@@ -61,6 +61,65 @@ python annotator.py
 4. **删除与恢复**：选中点后按 **T / Delete** 删除；按 **Reset Selected Keypoint** 恢复（优先恢复选中点，无选中时恢复最近删除的点）。
 5. **整体重置**：**Reset All Keypoints** 将当前人的所有点恢复到加载时的原始状态。
 6. 完成后按 **S** 保存。
+
+## 标注全流程（从标注到 YOLO 数据集）
+
+得益于 image 的 `modified` 已修改标记，本工具同时支持 **全量标注** 与 **选择性标注** 两种流程：
+
+- **全量标注**：所有帧都要标注并导出。
+- **选择性标注**：在已有/预标注数据上挑出需要修正的帧（`modified=1`），只导出这些帧及其图片，适合大批量数据分批复核。
+
+### 流程总览
+
+```
+annotator.py ──(标注，保存后 modified 置 1)──▶ out_annotations.json
+    │  选择性标注（全量标注可跳过 filter / copy 两步）
+    ├─▶ filter_modified_annotations.py ──▶ out_annotations_modified.json（仅 modified=1）
+    ├─▶ copy_images_by_annotations.py ───▶ 复制对应图片到数据集 images/
+    ├─▶ visualize_pose.py ────────────────▶ 逐帧可视化核对
+    └─▶ coco_to_yolo_txt.py ──────────────▶ labels/*.txt（YOLO-Pose 格式）
+```
+
+### 选择性标注流程
+
+```bash
+# 1. 在 annotator.py 中标注需要修正的帧并保存（保存后该帧 modified 置 1）
+python annotator.py
+
+# 2. 筛选已修改标注 → 生成 out_annotations_modified.json
+python filter_modified_annotations.py
+
+# 3. 按筛选结果复制对应图片 → 数据集 images/ 目录
+python copy_images_by_annotations.py
+
+# 4. 可视化核对，确认无误
+python visualize_pose.py
+
+# 5. 导出 YOLO 数据集（在数据集根目录生成 labels/*.txt）
+python coco_to_yolo_txt.py
+```
+
+### 全量标注流程
+
+所有帧都要时，直接标注全部帧，跳过筛选与复制两步，同样用 visualize 核对、coco_to_yolo 导出：
+
+```bash
+python annotator.py          # 1. 标注全部帧
+python visualize_pose.py     # 2. 可视化核对（脚本路径指向全量 JSON）
+python coco_to_yolo_txt.py   # 3. 生成 labels/*.txt
+```
+
+### 各脚本说明
+
+| 脚本 | 作用 | 主要输入 | 主要输出 |
+| ---- | ---- | ---- | ---- |
+| `annotator.py` | GUI 标注工具 | 图片文件夹 + COCO JSON | 输出目录 `out_annotations.json` |
+| `filter_modified_annotations.py` | 只保留 `modified=1` 的图片与标注 | 标注 JSON | `out_annotations_modified.json` |
+| `copy_images_by_annotations.py` | 按筛选后的 JSON 复制对应图片 | 筛选 JSON + 源图片目录 | 数据集 `images/` 目录 |
+| `visualize_pose.py` | 逐帧绘制关键点/骨骼用于核对 | COCO JSON + 图片目录 | 屏幕逐帧显示 |
+| `coco_to_yolo_txt.py` | COCO 关键点 → YOLO-Pose 文本 | COCO JSON + 图片目录 | `labels/*.txt` |
+
+> 以上脚本的输入输出路径均在各文件**顶部的配置区域硬编码**，运行前请按实际数据集修改。
 
 ## 多人标注
 
@@ -83,8 +142,8 @@ python annotator.py
 
 ## 保存机制
 
-- **保存目标**：写入输出目录下的 `annotations.json`。
-- **`.bak` 备份**：保存时若 `annotations.json` 已存在，先将其备份为 `annotations.json.bak`（覆盖旧备份），再直接在原文件上写入新内容，误改时可用备份恢复。
+- **保存目标**：写入输出目录下的 `out_annotations.json`。
+- **`.bak` 备份**：保存时若 `out_annotations.json` 已存在，先将其备份为 `out_annotations.json.bak`（覆盖旧备份），再直接在原文件上写入新内容，误改时可用备份恢复。
 - **保存入口**：
   - `Save Current Frame` 按钮或 `S` 键：静默保存（无弹窗，底部状态区显示保存记录）。
   - `A/D` 切帧：仅当当前帧有未保存修改时才弹窗询问，选"是"则保存并切换，选"否"则丢弃修改直接切换。
@@ -102,17 +161,17 @@ python annotator.py
   - Keypoints：17 个关键点列表（当前人的标注状态用背景色实时反映）
   - Add Mode：显示放置模式开关状态（`W`）
   - 控制按钮：`Reset Selected Keypoint` / `Save Current Frame` / `Reset All Keypoints` / `Exit Program`
-  - 元数据显示：Source / Video / Frame / Image ID / Person / BBox / 可见与遮挡点统计
+  - 修改状态指示：圆点绿色=已修改 / 红色=未修改（当前帧是否被编辑过）
   - Status Messages：底部状态消息（含时间戳的保存记录等）
 
 ## 数据格式
 
-COCO 人体关键点标准，另在 `images` 中扩展了 `video_file`（图片文件夹名）与 `frame_number` 用于来源跟踪：
+COCO 人体关键点标准，另在 `images` 中扩展了 `video_file`（图片文件夹名）、`frame_number`（帧号）与 `modified`（已修改标记）用于来源跟踪与编辑状态：
 
 ```json
 {
   "images": [
-    {"id": 1, "file_name": "0001.jpg", "video_file": "frames", "frame_number": 1, "width": 1920, "height": 1080}
+    {"id": 1, "file_name": "0001.jpg", "video_file": "frames", "frame_number": 1, "modified": 0, "width": 1920, "height": 1080}
   ],
   "annotations": [
     {
@@ -131,6 +190,7 @@ COCO 人体关键点标准，另在 `images` 中扩展了 `video_file`（图片�
 
 - `keypoints` 为扁平三元组 `(x, y, v)`，`v = 0` 未标注 / `1` 遮挡·估计 / `2` 可见。
 - 同一 `image_id` 对应多条 `annotations` 即多人。
+- image 的 `modified` 为已修改标记：`0` 未修改 / `1` 已修改（该帧被编辑过并保存）。
 
 ## 配置（pose_config.py）
 
@@ -148,19 +208,23 @@ COCO 人体关键点标准，另在 `images` 中扩展了 `video_file`（图片�
 
 ```
 human_pose_annotator/
-├── annotator.py              # 主程序（GUI + 标注逻辑）
-├── pose_config.py            # 关键点 / 骨骼 / 颜色配置
-├── requirements.txt          # 依赖
-├── README.md                 # 本文档
-├── demo/coco-pose-2017.json  # 示例 COCO 标注文件（多人）
-└── images/                   # README 截图
+├── annotator.py                    # 主程序（GUI + 标注逻辑）
+├── pose_config.py                  # 关键点 / 骨骼 / 颜色配置
+├── filter_modified_annotations.py  # 筛选 modified=1 的标注
+├── copy_images_by_annotations.py   # 按标注复制对应图片
+├── visualize_pose.py               # 可视化核对脚本
+├── coco_to_yolo_txt.py             # COCO → YOLO-Pose 转换
+├── requirements.txt                # 依赖
+├── README.md                       # 本文档
+├── demo/coco-pose-2017.json        # 示例 COCO 标注文件（多人）
+└── images/                         # README 截图
 ```
 
 ## 常见问题
 
 - **启动报 Qt 平台插件错误**：多为 OpenCV 自带的 Qt 插件与 PyQt 冲突，确认已使用 `opencv-python-headless`。
 - **`Load Annotations` 后图片不显示**：需先选择与标注文件 `file_name` 匹配的图片文件夹；加载标注时会自动弹出选择框。
-- **误删了关键点 / 删错了人**：未保存前切走再切回会恢复原始状态；已保存后可从 `annotations.json.bak` 恢复上一版本。
+- **误删了关键点 / 删错了人**：未保存前切走再切回会恢复原始状态；已保存后可从 `out_annotations.json.bak` 恢复上一版本。
 
 ## 许可证
 

@@ -15,9 +15,13 @@ from PyQt5.QtCore import Qt, QRectF
 
 from pose_config import*
 
+# 标注文件统一文件名：加载与保存均使用此常量，修改文件名/后缀只需改这一处
+ANNOTATIONS_FILE_NAME = 'out_annotations.json'
+ANNOTATIONS_BACKUP_FILE_NAME = ANNOTATIONS_FILE_NAME + '.bak'
+
 # 吸附选点阈值（像素）：默认未选中任何点时，点击关键点附近距离内会自动选中该点
 # （代替手动在列表中选择）。数值越小需点得越准，越大越容易吸附。调试时可在此调整。
-KEYPOINT_SNAP_THRESHOLD = 15
+KEYPOINT_SNAP_THRESHOLD = 10
 
 
 def prefer_pyqt_qt_plugins():
@@ -548,7 +552,7 @@ class IntegratedPoseTool(QMainWindow):
             os.makedirs(os.path.join(self.output_dir, "frames"), exist_ok=True)
             
             # Check for existing annotations
-            annotation_file = os.path.join(self.output_dir, 'annotations.json')
+            annotation_file = os.path.join(self.output_dir, ANNOTATIONS_FILE_NAME)
             if os.path.exists(annotation_file):
                 try:
                     with open(annotation_file, 'r') as f:
@@ -694,9 +698,19 @@ class IntegratedPoseTool(QMainWindow):
         
         right_layout.addLayout(buttons_layout)
         
-        # Metadata display
-        self.info_label = QLabel()
-        right_layout.addWidget(self.info_label)
+        # 当前帧修改状态指示：圆点绿色=已修改，红色=未修改
+        modified_row = QHBoxLayout()
+        self.status_dot = QLabel()
+        self.status_dot.setFixedSize(16, 16)
+        self.status_dot.setToolTip('绿色=已修改，红色=未修改')
+        self.modified_status_label = QLabel('未修改')
+        self.modified_status_label.setToolTip('绿色=已修改，红色=未修改')
+        modified_row.addWidget(self.status_dot)
+        modified_row.addWidget(self.modified_status_label)
+        modified_row.addStretch()
+        right_layout.addLayout(modified_row)
+        self.updateModifiedDot()
+
         
         # Set up keypoint update callback
         self.viewer.scene().keypoint_updated = self.updateKeypointStatus
@@ -731,7 +745,16 @@ class IntegratedPoseTool(QMainWindow):
 
     def saveBtnClicked(self):
         image_data = self.saveAnnotations(silent=True)
-        if not image_data:
+        if image_data is False:
+            QMessageBox.warning(
+                self, "保存失败",
+                "保存失败：请确认已设置输出目录，且当前帧元数据\n"
+                "（video_file / frame_number）有效。")
+            return
+        if image_data is None:
+            QMessageBox.warning(
+                self, "无可保存内容",
+                "当前帧没有可保存的标注（未标注关键点，或已有标注为空）。")
             return
 
         current_video = image_data.get("video_file", "Unknown")
@@ -743,9 +766,27 @@ class IntegratedPoseTool(QMainWindow):
         self.addStatusMessage(message, "red")
     
     
+    def updateModifiedDot(self):
+        """更新修改状态圆点：绿色=已修改，红色=未修改。
+
+        状态来源二选一即视为已修改：当前帧有未保存修改
+        （current_frame_dirty），或该帧在标注文件中已标记
+        modified=1（历史上保存过修改）。
+        """
+        modified = 0
+        if self.current_image_data:
+            modified = self.current_image_data.get("modified", 0)
+        is_modified = self.current_frame_dirty or modified == 1
+        color = "#00cc00" if is_modified else "#ff3b30"
+        self.status_dot.setStyleSheet(
+            f"background-color: {color}; border-radius: 8px; "
+            f"border: 1px solid #555;")
+        self.modified_status_label.setText("已修改" if is_modified else "未修改")
+
     def mark_dirty(self):
         """标记当前帧有未保存的修改（A/D 切帧时会弹窗询问保存）。"""
         self.current_frame_dirty = True
+        self.updateModifiedDot()
 
     def addStatusMessage(self, message, color="black"):
         # Get current time
@@ -902,18 +943,22 @@ class IntegratedPoseTool(QMainWindow):
         self.annotations.setdefault('images', [])
         self.annotations.setdefault('annotations', [])
         self.annotations.setdefault('categories', [self.pose_config.get_category_config()])
+        # 默认注入已修改标记（0=未修改 / 1=已修改），缺失的 image 补 0
+        for image in self.annotations.get('images', []):
+            if 'modified' not in image:
+                image['modified'] = 0
 
     def writeAnnotationsFile(self):
-        """将标注写入 annotations.json；若原文件已存在，先备份为 annotations.json.bak。
+        """将标注写入 ANNOTATIONS_FILE_NAME；若原文件已存在，先备份为 ANNOTATIONS_BACKUP_FILE_NAME。
 
         每次保存时把上一版本备份到 .bak（覆盖旧备份），随后在原文件上写新内容，
         方便误改时从备份恢复。
         """
-        annotations_path = os.path.join(self.output_dir, 'annotations.json')
+        annotations_path = os.path.join(self.output_dir, ANNOTATIONS_FILE_NAME)
         if os.path.exists(annotations_path):
             try:
                 shutil.copy2(annotations_path,
-                             os.path.join(self.output_dir, 'annotations.json.bak'))
+                             os.path.join(self.output_dir, ANNOTATIONS_BACKUP_FILE_NAME))
             except OSError:
                 pass  # 备份失败不阻断保存
         with open(annotations_path, 'w') as f:
@@ -931,7 +976,7 @@ class IntegratedPoseTool(QMainWindow):
     def showFrameState(self, image_data, annotations_list, frame_bgr):
         self.setCurrentFrameState(image_data, annotations_list, frame_bgr)
         self.displayFrame(cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB), annotations_list)
-        self.updateMetadataDisplay(image_data, annotations_list)
+        self.updateModifiedDot()
 
     # NEW: Enhanced load annotations method
     def loadAnnotations(self):
@@ -1061,8 +1106,7 @@ class IntegratedPoseTool(QMainWindow):
         scene.update_keypoint_visuals()
         self.updateKeypointListState()
         self._sync_visibility_combo()
-        self.updateMetadataDisplay(self.current_image_data or {},
-                                   self.current_annotations_list or [])
+        self.updateModifiedDot()
 
     def nextPerson(self):
         """Tab 键：切换到下一个 person（循环）；切换前自动保存当前人的修改。"""
@@ -1092,8 +1136,7 @@ class IntegratedPoseTool(QMainWindow):
         self.rebuild_person_dropdown()
         self.updateKeypointListState()
         self._sync_visibility_combo()
-        self.updateMetadataDisplay(self.current_image_data or {},
-                                   self.current_annotations_list or [])
+        self.updateModifiedDot()
 
     def deletePerson(self):
         """删除当前编辑的人（关键点与框一并删除），弹窗确认后执行。
@@ -1121,8 +1164,7 @@ class IntegratedPoseTool(QMainWindow):
         self.rebuild_person_dropdown()
         self.updateKeypointListState()
         self._sync_visibility_combo()
-        self.updateMetadataDisplay(self.current_image_data or {},
-                                   self.current_annotations_list or [])
+        self.updateModifiedDot()
 
 
     def displayFrame(self, frame, annotations_list=None):
@@ -1174,44 +1216,6 @@ class IntegratedPoseTool(QMainWindow):
         self.onPlacementChanged(new_scene.placement_enabled)  # 新场景放置模式默认关闭，同步标签
 
         self.rebuild_person_dropdown()
-
-    def updateMetadataDisplay(self, image_data, annotations_list):
-        # 统计改为从 scene 实时读取，annotations_list 保留以匹配调用方签名
-        _ = annotations_list
-        scene = self.viewer.scene()
-        num_people = len(scene.people)
-        person_idx = (min(scene.current_person_index, num_people - 1)
-                      if num_people > 0 else -1)
-
-        # Determine the source
-        if image_data.get('id') is None:
-            source = "Current source only (not annotated)"
-        else:
-            if self.active_source_matches(image_data):
-                source = "Annotation and Current Source"
-            else:
-                source = "Annotation only"
-
-        # 当前人的实时统计（基于 scene，反映编辑状态）
-        kp_values = list(scene.keypoints.values()) if scene.keypoints else []
-        visible_points = len([v for _, _, v in kp_values if v == 2])
-        estimated_points = len([v for _, _, v in kp_values if v == 1])
-
-        bbox = scene.calculate_bbox() or [0, 0, 0, 0]
-
-        info_text = (
-            f"Source: {source}\n"
-            f"Video: {image_data.get('video_file', 'N/A')}\n"
-            f"Frame: {image_data.get('frame_number', 'N/A')}\n"
-            f"Image ID: {image_data.get('id', 'N/A')}\n"
-            f"Person: {person_idx + 1}/{num_people}\n"
-            f"BBox: x={bbox[0]:.1f}, y={bbox[1]:.1f}, "
-            f"w={bbox[2]:.1f}, h={bbox[3]:.1f}\n"
-            f"Visible Keypoints (Left-click): {visible_points}\n"
-            f"Estimated Keypoints (Right-click): {estimated_points}\n"
-            f"Unlabeled Keypoints: {len(self.pose_config.keypoint_names) - visible_points - estimated_points}"
-        )
-        self.info_label.setText(info_text)
 
     def updateKeypointListState(self):
         """按当前人的标注情况刷新 keypoint 列表背景色。"""
@@ -1282,6 +1286,7 @@ class IntegratedPoseTool(QMainWindow):
             QMessageBox.warning(self, "Error", "Failed to load frame image.")
             return
 
+        self.saveBeforeFrameChange()   # 切换图片前询问是否保存当前帧
         self.showFrameState(image_data, annotations_list, frame)
 
     def updateFrame(self, frame_number):
@@ -1296,6 +1301,7 @@ class IntegratedPoseTool(QMainWindow):
                 self.addStatusMessage(f"Frame {frame_number} is missing from the selected image folder.", "red")
             return
 
+        self.saveBeforeFrameChange()   # 切换图片前询问是否保存当前帧
         self.current_frame_number = frame_number
         self.setFrameControls(frame_number)
 
@@ -1325,8 +1331,8 @@ class IntegratedPoseTool(QMainWindow):
         idx = max(0, min(len(frames) - 1, idx + delta))
         self.updateFrame(frames[idx])
 
-    def stepFrameWithSave(self, delta):
-        """A/D 快捷键入口：当前帧有未保存修改时弹窗询问是否保存，否则直接切换。"""
+    def saveBeforeFrameChange(self):
+        """切帧前统一询问：当前帧有未保存修改时弹窗确认是否保存，选否则直接切换（修改被丢弃）。"""
         if self.current_frame_dirty:
             reply = QMessageBox.question(
                 self, "Save Changes",
@@ -1334,6 +1340,9 @@ class IntegratedPoseTool(QMainWindow):
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if reply == QMessageBox.Yes:
                 self.saveAnnotations(silent=True)
+
+    def stepFrameWithSave(self, delta):
+        """A/D 快捷键入口：切换帧前询问是否保存（询问逻辑统一在 updateFrame 内）。"""
         self.stepFrame(delta)
 
     def saveAnnotations(self, silent=False):
@@ -1371,9 +1380,11 @@ class IntegratedPoseTool(QMainWindow):
                 self.annotations['annotations'] = [a for a in self.annotations.get('annotations', [])
                                                    if a.get('image_id') != image_id]
                 existing_image["date_captured"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                existing_image["modified"] = 1  # 清空该帧全部标注也视为已修改
                 self.writeAnnotationsFile()
                 self.setCurrentFrameState(existing_image, [], self.current_frame_bgr)
                 self.current_frame_dirty = False  # 保存成功，清空修改记录
+                self.updateModifiedDot()
                 if not silent:
                     QMessageBox.information(self, "Success",
                                           f"Frame {current_frame} 已清空全部标注！")
@@ -1450,19 +1461,22 @@ class IntegratedPoseTool(QMainWindow):
         self.annotations['annotations'].extend(new_anns)
 
         image_info["date_captured"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        # 已修改标记：0=未修改 / 1=已修改；当前帧有编辑记录则置 1，否则保留原值
+        image_info["modified"] = 1 if self.current_frame_dirty else image_info.get("modified", 0)
 
         self.writeAnnotationsFile()
 
         self.setCurrentFrameState(image_info, new_anns, self.current_frame_bgr)
         self.updateFrameDropdown()
         self.selectFrameDropdownByImageId(image_id)
-        self.updateMetadataDisplay(image_info, new_anns)
+        self.updateModifiedDot()
 
         if not silent:
             QMessageBox.information(self, "Success",
                                   f"Frame {current_frame} Person {current_person_index + 1} saved successfully!")
 
         self.current_frame_dirty = False  # 保存成功，清空修改记录
+        self.updateModifiedDot()
         return image_info
             
 
